@@ -6,7 +6,7 @@ if ( [ $# -eq 0 ] || [ $1 == "help" ] || [ $1 == "--help" ] ) then
     echo "     - AWS_ACCESS_KEY_ID & AWS_SECRET_ACCESS_KEY envionment variables must be set"
     echo ""
     echo "  Parameters: "
-    echo "    [backup_url] [provider(aws|gce)] [nodes(#)] [machine_type(m5d.xlarge)] [engine(peeble|default)] [workload(tpcc|movr)] [init_params(--warehouses 100)] [run_params(--warehouses=100)]"
+    echo "    [BACKUP_URL] [provider(aws|gce)] [nodes(#)] [machine_type(m5d.xlarge)] [engine(peeble|default)] [workload(tpcc|movr)] [init_params(--warehouses 100)] [run_params(--warehouses=100)]"
     echo "    First option for each parameter is the default"
     exit 1;
 fi
@@ -16,49 +16,49 @@ if ( [ $AWS_ACCESS_KEY_ID == "" ] || [ $AWS_SECRET_ACCESS_KEY == "" ]) then
     exit 1;
 fi
 
-export backup_url=${1:-s3://chrisc-test/backup}
-export provider=${2:-aws}
-export cnodes=${3:-3}
-export machine=${4:-m5d.xlarge}
-export engine=${5:-pebble}
-export workload=${6:-tpcc}
-export init_p=${7:---warehouses=100 --checks=false }
-export run_p=${8:---warehouses=100 --ramp=1m }
-if ( [ $provider == "aws" ] && [[ $machine == "m5d"* ]] ) then
+export BACKUP_URL=${1:-s3://chrisc-test/backup}
+export PROVIDER=${2:-aws}
+export CNODES=${3:-3}
+export MACHINE=${4:-m5d.xlarge}
+export ENGINE=${5:-pebble}
+export WORKLOAD=${6:-tpcc}
+export INIT_P=${7:---warehouses=100 --checks=false }
+export RUN_P=${8:---warehouses=100 --ramp=1m }
+if ( [ $PROVIDER == "aws" ] && [[ $MACHINE == "m5d"* ]] ) then
   export ssd="-ssd "
 else
   export ssd=""
 fi
 
-export CLUSTER="${USER:0:6}-${workload}"
-export NODES=$(($cnodes+1))
-export BUCKET=${workload}"-"${engine}
+export CLUSTER="${USER:0:6}-${WORKLOAD}"
+export NODES=$(($CNODES+1))
+export BUCKET=${WORKLOAD}"-"${ENGINE}
 
 echo "**************************"
 echo "Benchmarks Parameters"
-echo "  Provider: $provider"
+echo "  Provider: $PROVIDER"
 echo "  All Nodes: $NODES"
-echo "  CRDB Nodes: $cnodes"
-echo "  Machines: $machine"
+echo "  CRDB Nodes: $CNODES"
+echo "  Machines: $MACHINE"
 echo "    SSD: $ssd"
-echo "  Engine: $engine"
-echo "  Workload: $workload"
-echo "    $workload init: $init_p"
-echo "    $workload run:  $run_p"
+echo "  Engine: $ENGINE"
+echo "  Workload: $WORKLOAD"
+echo "    $WORKLOAD init: $INIT_P"
+echo "    $WORKLOAD run:  $RUN_P"
 echo "  Cluster Name: $CLUSTER"
-echo "  Backup Root: $backup_url"
+echo "  Backup Root: $BACKUP_URL"
 echo "  Backup Bucket: $BUCKET"
 echo "**************************"
 
 ### Remove prior backups
-aws s3 rm ${backup_url}/${BUCKET}-idle/ --recursive --quiet
-aws s3 rm ${backup_url}/${BUCKET}-live/ --recursive --quiet
+aws s3 rm ${BACKUP_URL}/${BUCKET}-idle/ --recursive --quiet
+aws s3 rm ${BACKUP_URL}/${BUCKET}-live/ --recursive --quiet
 
 ### Create
-roachprod create ${CLUSTER} -n ${NODES} -c ${provider} --${provider}-machine-type${ssd} ${machine}
+roachprod create ${CLUSTER} -n ${NODES} -c ${PROVIDER} --${PROVIDER}-machine-type${ssd} ${MACHINE}
 roachprod stage ${CLUSTER} workload
 roachprod stage ${CLUSTER} release v20.1.0
-roachprod start ${CLUSTER}:1-${cnodes} -a "--storage-engine=${engine}"
+roachprod start ${CLUSTER}:1-${CNODES} -a "--storage-engine=${engine}"
 
 ### Admin UI
 roachprod admin ${CLUSTER}:1 --open --ips
@@ -69,7 +69,7 @@ roachprod admin ${CLUSTER}:1 --open --ips
 
 echo "Init Workload"
 roachprod run ${CLUSTER}:4 <<EOF
-./workload fixtures import ${workload} ${init_p} "postgres://root@`roachprod ip ${CLUSTER}:1`:26257/tpcc?sslmode=disable"
+./workload fixtures import ${WORKLOAD} ${INIT_P} "postgres://root@`roachprod ip ${CLUSTER}:1`:26257/tpcc?sslmode=disable"
 EOF
 
 sleep 15
@@ -78,7 +78,7 @@ echo "Initial Metrics"
 roachprod run ${CLUSTER}:1 <<EOF
 ./cockroach sql --insecure \
 -e "select 'LiveNodes' as metric, count(*)::DECIMAL as val from crdb_internal.gossip_nodes where is_live union all \
-select 'DBSize', sum(range_size) / 1000000000 from crdb_internal.ranges where database_name = '${workload}' union all \
+select 'DBSize', sum(range_size) / 1000000000 from crdb_internal.ranges where database_name = '${WORKLOAD}' union all \
 select 'NormCPU', avg(cast( metrics->>'sys.cpu.combined.percent-normalized' as DECIMAL )) from crdb_internal.kv_node_status;"
 EOF
 
@@ -88,15 +88,15 @@ echo "************************"
 
 roachprod run ${CLUSTER}:1 <<EOF
 ./cockroach sql --insecure \
--e "backup database ${workload} to \"${backup_url}/${BUCKET}-idle/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\" as of system time '-10s' with revision_history;" \
+-e "backup database ${WORKLOAD} to \"${BACKUP_URL}/${BUCKET}-idle/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\" as of system time '-10s' with revision_history;" \
 -e "select 'BackupDuration', extract_duration('second', finished - created)::DECIMAL from [show jobs] where job_id in (select job_id from [show jobs] where job_type = 'BACKUP' order by created desc limit 1) union all \
 select 'LiveNodes' as metric, count(*)::DECIMAL as val from crdb_internal.gossip_nodes where is_live union all \
-select 'DBSize', sum(range_size) / 1000000000 from crdb_internal.ranges where database_name = '${workload}' union all \
+select 'DBSize', sum(range_size) / 1000000000 from crdb_internal.ranges where database_name = '${WORKLOAD}' union all \
 select 'NormCPU', avg(cast( metrics->>'sys.cpu.combined.percent-normalized' as DECIMAL )) from crdb_internal.kv_node_status;"
 EOF
 
 echo "Run Workload"
-roachprod run ${CLUSTER}:4 -- "./workload run ${workload} ${run_p} --display-every=1m {pgurl:1-${cnodes}}" &
+roachprod run ${CLUSTER}:4 -- "./workload run ${WORKLOAD} ${RUN_P} --display-every=1m {pgurl:1-${CNODES}}" &
 BGPID=$!
 
 sleep 120
@@ -107,10 +107,10 @@ echo "************************"
 
 roachprod run ${CLUSTER}:1 <<EOF
 ./cockroach sql --insecure \
--e "backup database ${workload} to \"${backup_url}/${BUCKET}-live/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\" as of system time '-10s' with revision_history;" \
+-e "backup database ${WORKLOAD} to \"${BACKUP_URL}/${BUCKET}-live/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\" as of system time '-10s' with revision_history;" \
 -e "select 'BackupDuration', extract_duration('second', finished - created)::DECIMAL from [show jobs] where job_id in (select job_id from [show jobs] where job_type = 'BACKUP' order by created desc limit 1) union all \
 select 'LiveNodes' as metric, count(*)::DECIMAL as val from crdb_internal.gossip_nodes where is_live union all \
-select 'DBSize', sum(range_size) / 1000000000 from crdb_internal.ranges where database_name = '${workload}' union all \
+select 'DBSize', sum(range_size) / 1000000000 from crdb_internal.ranges where database_name = '${WORKLOAD}' union all \
 select 'NormCPU', avg(cast( metrics->>'sys.cpu.combined.percent-normalized' as DECIMAL )) from crdb_internal.kv_node_status;"
 EOF
 
@@ -122,10 +122,10 @@ echo "************************"
 
 roachprod run ${CLUSTER}:1 <<EOF
 ./cockroach sql --insecure \
--e "backup database ${workload} to \"${backup_url}/${BUCKET}-live/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\" as of system time '-10s' with revision_history;" \
+-e "backup database ${WORKLOAD} to \"${BACKUP_URL}/${BUCKET}-live/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\" as of system time '-10s' with revision_history;" \
 -e "select 'BackupDuration', extract_duration('second', finished - created)::DECIMAL from [show jobs] where job_id in (select job_id from [show jobs] where job_type = 'BACKUP' order by created desc limit 1) union all \
 select 'LiveNodes' as metric, count(*)::DECIMAL as val from crdb_internal.gossip_nodes where is_live union all \
-select 'DBSize', sum(range_size) / 1000000000 from crdb_internal.ranges where database_name = '${workload}' union all \
+select 'DBSize', sum(range_size) / 1000000000 from crdb_internal.ranges where database_name = '${WORKLOAD}' union all \
 select 'NormCPU', avg(cast( metrics->>'sys.cpu.combined.percent-normalized' as DECIMAL )) from crdb_internal.kv_node_status;"
 EOF
 
@@ -137,10 +137,10 @@ echo "************************"
 
 roachprod run ${CLUSTER}:1 <<EOF
 ./cockroach sql --insecure \
--e "backup database ${workload} to \"${backup_url}/${BUCKET}-live/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\" as of system time '-10s' with revision_history;" \
+-e "backup database ${WORKLOAD} to \"${BACKUP_URL}/${BUCKET}-live/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\" as of system time '-10s' with revision_history;" \
 -e "select 'BackupDuration', extract_duration('second', finished - created)::DECIMAL from [show jobs] where job_id in (select job_id from [show jobs] where job_type = 'BACKUP' order by created desc limit 1) union all \
 select 'LiveNodes' as metric, count(*)::DECIMAL as val from crdb_internal.gossip_nodes where is_live union all \
-select 'DBSize', sum(range_size) / 1000000000 from crdb_internal.ranges where database_name = '${workload}' union all \
+select 'DBSize', sum(range_size) / 1000000000 from crdb_internal.ranges where database_name = '${WORKLOAD}' union all \
 select 'NormCPU', avg(cast( metrics->>'sys.cpu.combined.percent-normalized' as DECIMAL )) from crdb_internal.kv_node_status;"
 EOF
 
@@ -150,7 +150,7 @@ echo "************************"
 
 roachprod run ${CLUSTER}:1 <<EOF
 ./cockroach sql --insecure \
--e "show backup \"${backup_url}/${BUCKET}-live/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\";"
+-e "show backup \"${BACKUP_URL}/${BUCKET}-live/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\";"
 EOF
 
 echo "************************"
@@ -166,11 +166,11 @@ echo "************************"
 
 roachprod run ${CLUSTER}:1 <<EOF
 ./cockroach sql --insecure \
--e "drop database ${workload};" \
+-e "drop database ${WORKLOAD};" \
 -e "select 'LiveNodes' as metric, count(*)::DECIMAL as val from crdb_internal.gossip_nodes where is_live union all \
-select 'DBSize', sum(range_size) / 1000000000 from crdb_internal.ranges where database_name = '${workload}' union all \
+select 'DBSize', sum(range_size) / 1000000000 from crdb_internal.ranges where database_name = '${WORKLOAD}' union all \
 select 'NormCPU', avg(cast( metrics->>'sys.cpu.combined.percent-normalized' as DECIMAL )) from crdb_internal.kv_node_status;" \
--e "restore database ${workload} from \"${backup_url}/${BUCKET}-live/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\";" \
+-e "restore database ${WORKLOAD} from \"${BACKUP_URL}/${BUCKET}-live/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\";" \
 -e "select 'RestoreDuration', extract_duration('second', finished - created)::DECIMAL from [show jobs] where job_id in (select job_id from [show jobs] where job_type = 'RESTORE' order by created desc limit 1);"
 EOF
 
