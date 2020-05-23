@@ -51,8 +51,8 @@ echo "  Backup Bucket: $BUCKET"
 echo "**************************"
 
 ### Remove prior backups
-aws s3 rm ${BACKUP_URL}/${BUCKET}-idle/ --recursive --quiet
-aws s3 rm ${BACKUP_URL}/${BUCKET}-live/ --recursive --quiet
+#aws s3 rm ${BACKUP_URL}/${BUCKET}-idle-temp/ --recursive --quiet
+#aws s3 rm ${BACKUP_URL}/${BUCKET}-live-temp/ --recursive --quiet
 
 ### Create
 roachprod create ${CLUSTER} -n ${NODES} -c ${PROVIDER} --${PROVIDER}-machine-type${ssd} ${MACHINE}
@@ -88,7 +88,7 @@ echo "************************"
 
 roachprod run ${CLUSTER}:1 <<EOF
 ./cockroach sql --insecure \
--e "backup database ${WORKLOAD} to \"${BACKUP_URL}/${BUCKET}-idle/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\" as of system time '-10s' with revision_history;" \
+-e "backup database ${WORKLOAD} to \"${BACKUP_URL}/${BUCKET}-idle-temp/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\" as of system time '-10s' with revision_history;" \
 -e "select 'BackupDuration', extract_duration('second', finished - created)::DECIMAL from [show jobs] where job_id in (select job_id from [show jobs] where job_type = 'BACKUP' order by created desc limit 1) union all \
 select 'LiveNodes' as metric, count(*)::DECIMAL as val from crdb_internal.gossip_nodes where is_live union all \
 select 'DBSize', sum(range_size) / 1000000000 from crdb_internal.ranges where database_name = '${WORKLOAD}' union all \
@@ -96,7 +96,7 @@ select 'NormCPU', avg(cast( metrics->>'sys.cpu.combined.percent-normalized' as D
 EOF
 
 echo "Run Workload"
-roachprod run ${CLUSTER}:4 -- "./workload run ${WORKLOAD} ${RUN_P} --display-every=1m {pgurl:1-${CNODES}}" &
+roachprod run ${CLUSTER}:${NODES} -- "./workload run ${WORKLOAD} ${RUN_P} --display-every=1m {pgurl:1-${CNODES}}" &
 BGPID=$!
 
 sleep 120
@@ -107,7 +107,7 @@ echo "************************"
 
 roachprod run ${CLUSTER}:1 <<EOF
 ./cockroach sql --insecure \
--e "backup database ${WORKLOAD} to \"${BACKUP_URL}/${BUCKET}-live/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\" as of system time '-10s' with revision_history;" \
+-e "backup database ${WORKLOAD} to \"${BACKUP_URL}/${BUCKET}-live-temp/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\" as of system time '-10s' with revision_history;" \
 -e "select 'BackupDuration', extract_duration('second', finished - created)::DECIMAL from [show jobs] where job_id in (select job_id from [show jobs] where job_type = 'BACKUP' order by created desc limit 1) union all \
 select 'LiveNodes' as metric, count(*)::DECIMAL as val from crdb_internal.gossip_nodes where is_live union all \
 select 'DBSize', sum(range_size) / 1000000000 from crdb_internal.ranges where database_name = '${WORKLOAD}' union all \
@@ -122,7 +122,7 @@ echo "************************"
 
 roachprod run ${CLUSTER}:1 <<EOF
 ./cockroach sql --insecure \
--e "backup database ${WORKLOAD} to \"${BACKUP_URL}/${BUCKET}-live/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\" as of system time '-10s' with revision_history;" \
+-e "backup database ${WORKLOAD} to \"${BACKUP_URL}/${BUCKET}-live-temp/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\" as of system time '-10s' with revision_history;" \
 -e "select 'BackupDuration', extract_duration('second', finished - created)::DECIMAL from [show jobs] where job_id in (select job_id from [show jobs] where job_type = 'BACKUP' order by created desc limit 1) union all \
 select 'LiveNodes' as metric, count(*)::DECIMAL as val from crdb_internal.gossip_nodes where is_live union all \
 select 'DBSize', sum(range_size) / 1000000000 from crdb_internal.ranges where database_name = '${WORKLOAD}' union all \
@@ -137,7 +137,7 @@ echo "************************"
 
 roachprod run ${CLUSTER}:1 <<EOF
 ./cockroach sql --insecure \
--e "backup database ${WORKLOAD} to \"${BACKUP_URL}/${BUCKET}-live/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\" as of system time '-10s' with revision_history;" \
+-e "backup database ${WORKLOAD} to \"${BACKUP_URL}/${BUCKET}-live-temp/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\" as of system time '-10s' with revision_history;" \
 -e "select 'BackupDuration', extract_duration('second', finished - created)::DECIMAL from [show jobs] where job_id in (select job_id from [show jobs] where job_type = 'BACKUP' order by created desc limit 1) union all \
 select 'LiveNodes' as metric, count(*)::DECIMAL as val from crdb_internal.gossip_nodes where is_live union all \
 select 'DBSize', sum(range_size) / 1000000000 from crdb_internal.ranges where database_name = '${WORKLOAD}' union all \
@@ -150,18 +150,18 @@ echo "************************"
 
 roachprod run ${CLUSTER}:1 <<EOF
 ./cockroach sql --insecure \
--e "show backup \"${BACKUP_URL}/${BUCKET}-live/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\";"
+-e "show backup \"${BACKUP_URL}/${BUCKET}-live-temp/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\";"
 EOF
 
 echo "************************"
-echo "Stop Workload
+echo "Stop Workload"
 echo "************************"
 
 kill -9 $BGPID
 roachprod run ${CLUSTER}:4 -- pkill -9 workload
 
 echo "************************"
-echo "Restore Idle
+echo "Restore Idle"
 echo "************************"
 
 roachprod run ${CLUSTER}:1 <<EOF
@@ -170,9 +170,8 @@ roachprod run ${CLUSTER}:1 <<EOF
 -e "select 'LiveNodes' as metric, count(*)::DECIMAL as val from crdb_internal.gossip_nodes where is_live union all \
 select 'DBSize', sum(range_size) / 1000000000 from crdb_internal.ranges where database_name = '${WORKLOAD}' union all \
 select 'NormCPU', avg(cast( metrics->>'sys.cpu.combined.percent-normalized' as DECIMAL )) from crdb_internal.kv_node_status;" \
--e "restore database ${WORKLOAD} from \"${BACKUP_URL}/${BUCKET}-live/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\";" \
+-e "restore database ${WORKLOAD} from \"${BACKUP_URL}/${BUCKET}-live-temp/?AUTH=specified&AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}&AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}\";" \
 -e "select 'RestoreDuration', extract_duration('second', finished - created)::DECIMAL from [show jobs] where job_id in (select job_id from [show jobs] where job_type = 'RESTORE' order by created desc limit 1);"
 EOF
-
 
 roachprod destroy ${CLUSTER}
