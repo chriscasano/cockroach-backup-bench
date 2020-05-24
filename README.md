@@ -2,6 +2,23 @@
 
 This benchmarking script uses roachprod to test CockroachDB's backup and restore processes.  It's generic enough to run different workloads while backup and restore run.
 
+## What Does The Script Do?
+- Removes prior backups in S3
+- Creates the envionrment
+- Initialize a workload
+- Takes an idle backups
+- Runs tbe workload
+- Takes a working backup
+- Takes a working incremental backup 15 minutes later
+- Takes a working incremental backup 30 minutes later
+- Stops the workload
+- Runs an idle restore
+
+### Roadmap
+- Full cluster backups
+- Incremental / Point In Time Restores
+- Backups on long running clusters
+
 ### Limitations
 - This works for AWS only today
 - Tested with `tpcc` only, but should work for other workloads
@@ -30,5 +47,5 @@ The first option for each parameter is the default
 [machine_type (m5d.xlarge)]  
 [engine (pebble|default)]  
 [workload (tpcc|movr)]  <-- other workloads should work here   
-[init_params (--warehouses 100)]  
+[init_params (--warehouses=100)]  
 [run_params (--warehouses=100)]  

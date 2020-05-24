@@ -51,8 +51,8 @@ echo "  Backup Bucket: $BUCKET"
 echo "**************************"
 
 ### Remove prior backups
-#aws s3 rm ${BACKUP_URL}/${BUCKET}-idle-temp/ --recursive --quiet
-#aws s3 rm ${BACKUP_URL}/${BUCKET}-live-temp/ --recursive --quiet
+aws s3 rm ${BACKUP_URL}/${BUCKET}-idle-temp/ --recursive --quiet
+aws s3 rm ${BACKUP_URL}/${BUCKET}-live-temp/ --recursive --quiet
 
 ### Create
 roachprod create ${CLUSTER} -n ${NODES} -c ${PROVIDER} --${PROVIDER}-machine-type${ssd} ${MACHINE}
